@@ -1,0 +1,42 @@
+start w/ new IDL terminal (so nothing is saved)
+compile all programs
+run program once
+
+resolve issues:
+
+resolve_all
+
+save, /ROUTINES, file='/scr/gwen/idl/MIRMOS_XTcalc/distribution/MIRMOS_XTcalc/run_XTcalc_MIRMOS.sav'
+
+the name of the .sav file should match the name of the routine you wish to execute.
+
+To Run:  
+
+idl -vm=/scr/gwen/idl/MIRMOS_XTcalc/distribution/MIRMOS_XTcalc/run_XTcalc_MIRMOS.sav
+
+
+************************
+idl
+.r /scr/gwen/idl/MIRMOS_XTcalc/XTcalc_MIRMOS
+.r /scr/gwen/idl/MIRMOS_XTcalc/run_XTcalc_MIRMOS
+.r /scr/gwen/idl/MIRMOS_XTcalc/events_XTcalc_MIRMOS
+run_XTcalc_MIRMOS
+resolve_all
+save, /ROUTINES, file='/scr/gwen/idl/MIRMOS_XTcalc/distribution/MIRMOS_XTcalc/run_XTcalc_MIRMOS.sav'
+exit
+
+
+
+
+cd /scr/gwen/idl/MIRMOS_XTcalc/distribution
+tar -cvf MIRMOS_XTcalc.tar *
+gzip MIRMOS_XTcalc.tar
+
+
+
+
+tar -cvf XTcalc.tar XTcalc_dir
+gzip XTcalc.tar 
+
+scp XTcalc.tar.gz casa:/home/gwen/XTcalc/v2.3
+scp XTcalc.tar.gz casa:/home/gwen/public_html/Publications_and_Code_files
