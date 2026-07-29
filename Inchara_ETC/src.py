@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.constants as const
 from scipy.interpolate import interp1d
+from scipy.integrate import simpson
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +21,7 @@ atm_file = "/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/atm_trans_mirmos.
 
 dispersions = [1.478, 1.548, 2.153, 3.003] #angstroms per pixel, yjhk
 
-band_edges = [(1.0, 1.1), (1.1, 1.4), (1.4, 1.9), (1.9, 2.4)] #yjhk
+band_edges = [(1.0, 1.1), (1.1, 1.4), (1.4, 1.9), (1.9, 2.4)] #yjhk, check IDL!!
 
 def emission_line_signal(l, flux, line_width, line_centre, z):
     '''
@@ -42,7 +43,29 @@ def emission_line_signal(l, flux, line_width, line_centre, z):
 
     return wavelegnth, signal
 
-def emission_spectrum_file_signal(file, z, mag_AB):
+def emission_spectrum_file_signal(file, z, targ_mAB): #need FULL filepath
+    wavelength, flux = np.loadtxt(file, comments='#', unpack=True) #wavelength is in angstroms
+
+    wavelength *= (1+z)/10000 # in micron and also redshifted
+
+    l_full, flux_full, thpt, sky, atm_binned = bin_signal_thp_atm_sky_data(wavelength, flux)
+
+    num, den = [], []
+
+    for i in range(len(l_full)):
+        I1 = simpson(flux_full[i]*l_full[i]*thpt[i], l_full[i])
+        I2 = simpson(thpt[i]/l_full[i], l_full[i])
+
+        num.append(I1)
+        den.append(I2)
+    frac = [x/y/(const.c*1e6) for x, y in zip(num, den)]
+    mAB = -2.5*np.log10(frac) - 48.60
+
+    scale = 10**(-0.4*(targ_mAB-mAB[2]))
+    flux_final = [f * scale for f in flux_full]
+
+
+    
     return np.nan
 
 def bin_signal_thp_atm_sky_data(l, signal):
@@ -97,7 +120,7 @@ def bin_signal_thp_atm_sky_data(l, signal):
 
     return l_full, signal_full, thpt, sky, atm_binned
 
-def apply_thpt_atm_to_signal(l, signal, thpt, atm):
+def apply_thpt_atm_to_signal(l, signal, thpt, atm): #emission only
     '''
     input results from "bin_signal_thp_atm_sky_data(l, signal)"
 
@@ -127,14 +150,45 @@ def calculate_signal_to_photon_counts(l, signal, area):
         signal_per_pixel.append(signal[i]*area*(l[i]/(const.h * 1e7 * const.c*1e6))*dispersions[i]*1e-4)
     return signal_per_pixel
 
-def calculate_sky_to_photon_counts(sky, area, slit_width, angular_extent):
+def calculate_sky_to_photon_counts(sky, area, slit_width=0.84, angular_extent=0.84):
     sky_per_pixel = []
     for i in range(len(sky)):
         sky_per_pixel.append(sky[i]*area*angular_extent*slit_width*dispersions[i])
     return sky_per_pixel
 
-def calculate_signal_to_noise():
-    return np.nan
+def calculate_signal_to_noise(signal, sky, exp_time = 1000, angular_extent=0.84, rn = 21, n_reads = 16):
+    n_spatial = angular_extent/0.38 #property of object --> doesn't change with lambda
 
-def calculate_exposure_time():
-    return np.nan
+    eta_read = (rn/np.sqrt(n_reads)) * np.sqrt(n_spatial) # read noise
+    eta_dark = np.sqrt(n_spatial * 0.005 * exp_time) # dark current
+    eta_poisson = np.sqrt(signal*exp_time)
+    eta_sky = np.sqrt(sky*exp_time)
+
+    tot_noise = np.sqrt(eta_poisson**2 + eta_sky**2 + eta_dark**2 + eta_read**2)
+
+    snr = (signal*exp_time)/tot_noise
+    
+    return snr
+
+def calculate_exposure_time(targ_snr, signal, sky, angular_extent=0.84, rn = 16, n_reads = 16): # ask about this
+    #targ_snr should be given only for peak of Gaussian
+
+    # so the equation is 0=s^2t^2 - (SNR)^2(s+beta+dark)t - (SNR)^2(read)
+    # use quadratic equation --> t = [(SNR)^2(s+beta+dark) +/- sqrt(((SNR)^2(s+beta+dark))^2 + 4s^2(read)(SNR)^2)]/2s^2
+    # and then only take the positive root cuz the determinant is bigger than b coeff
+
+    n_spatial = angular_extent/0.38 #property of object --> doesn't change with lambda
+
+    #excpet for read noise, these are all COEFFICIENTS, not noise
+    eta_read = ((rn/np.sqrt(n_reads)) * np.sqrt(n_spatial))**2 
+    eta_dark = n_spatial * 0.005 # dark current
+    eta_poisson = signal
+    eta_sky = sky
+
+    a = eta_poisson**2
+    b = -(eta_poisson+eta_sky+eta_dark)(targ_snr**2)
+    c = -(eta_read)(targ_snr**2)
+
+    exp_time = (-b + np.sqrt(b**2 - (4*a*c)))/(2*a)
+
+    return exp_time

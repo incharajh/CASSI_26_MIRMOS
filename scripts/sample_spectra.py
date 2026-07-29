@@ -26,14 +26,13 @@ wavelength /= 10000 #and now it is in microns :]
 flux *= 10000 #claude told me to do this but idk
 
 # before doing all the next steps and binning, need to account for this extra redshift
-z = 2.3 # i think user is supposed to input this
-targ_mag = 23.5 # i think user is also supposed to input this
+z = 1.3 # i think user is supposed to input this
+targ_mag = 21 # i think user is also supposed to input this
 wavelength *= (1+z)
 #flux /= (1+z)
 
 #now, need to rebin the data according to the dispersion.
-l_full = []
-band_edges = [(1.0, 1.1), (1.1, 1.4), (1.4, 1.9), (1.9, 2.4)]  # yjhk, microns
+band_edges = [(0.886,1.124), (1.124,1.352), (1.466,1.807), (1.921,2.404)]  # yjhk, microns
 
 l_full = []
 flux_full = []
@@ -90,15 +89,15 @@ num = []
 den = []
 
 for i in range(len(l_full)):
-    I1 = simpson(flux_full[i]*l_full[i]*thpt[i], l_full[i])
-    I2 = simpson(thpt[i]/l_full[i], l_full[i])
+    I1 = simpson(1e23*flux_full[i]*((l_full[i]**2)/(const.c*1e6))*thpt[i], (l_full[i]))
+    I2 = simpson(thpt[i], (l_full[i]))
 
     num.append(I1)
     den.append(I2)
 
-frac = [x/y/(const.c*1e6) for x, y in zip(num, den)]
+frac = [x/y for x, y in zip(num, den)]
 
-mAB = -2.5*np.log10(frac) - 48.60
+mAB = [-2.5*np.log10(f/3631) for f in frac] #Jy
 
 print(mAB)
 
@@ -106,25 +105,33 @@ print(mAB)
 # so i will hard code the following for the H band
 
 scale = 10**(-0.4*(targ_mag-mAB[2]))
-flux_final = [f * scale for f in flux_full]
+flux_final = [f * 1e23 * ((l**2)/(const.c*1e6)) * scale for f,l in zip(flux_full, l_full)]
 
 #OK so now i have the corrected flux and can turn it into photon counts
 
 area = 0.93 /4* np.pi*650**2
 slit_width = 0.84
-angular_extent = 0.8 #idk what to use for this
+angular_extent = 0.84 #idk what to use for this
 
 dispersions = [d*10000 for d in dispersions] #back in angstroms
+print(dispersions)
 
 sky_photons_per_pixel = []
 for i in range(len(dispersions)):
-    val = [s* t *dispersions[i] * slit_width * angular_extent * area for s, t in zip(sky[i], thpt[i])]
-    val = [v if v >= 0 else 0 for v in val]
+    val = [s* t *1000*dispersions[i] * slit_width * angular_extent * area for s, t in zip(sky[i], thpt[i])]
+    # val = [v if v >= 0 else 0 for v in val]
     sky_photons_per_pixel.append(np.sqrt(val))
+
+# sky counts are good!
 
 flux_photons_per_pixel = []
 for i in range(len(dispersions)):
-    val = [f*l * area/(const.h * 1e7 * const.c*1e6) for f, l in zip(flux_final[i], l_full[i])]
+    flux_loop = flux_final[i]
+    #flux_loop = [3631*f*(const.c*1e6)/(l**2) for f, l in zip(flux_final[i], l_full[i])] #now this is f_nu in Jy
+    tot_E = [(f)*(area)*(dispersions[i]*1e-4)*1000 for f in flux_loop]
+    #the f*1e-23 puts the flux in cgs units
+    photon_E = [(l)/(const.h*const.c*1e13) for l in l_full[i]]
+    val = [t*p for t, p in zip(tot_E, photon_E)]
     val = [v*a*t for v, a, t in zip(val, atm_binned[i], thpt[i])]
     flux_photons_per_pixel.append(val)
 
