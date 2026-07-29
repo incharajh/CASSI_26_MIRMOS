@@ -66,7 +66,7 @@ def emission_spectrum_file_signal(file, z, targ_mAB): #need FULL filepath
 
 
     
-    return np.nan
+    return l_full, flux_final, thpt, sky, atm_binned
 
 def bin_signal_thp_atm_sky_data(l, signal):
     '''
