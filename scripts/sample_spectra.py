@@ -22,11 +22,13 @@ atm_file = "../atmosphere/atm_trans_mirmos.dat"
 
 wavelength, flux = np.loadtxt('../ssp_1.4Gyr_z02.spec', comments='#', unpack=True) #wavelength is in angstroms
 
+#wavelength, flux = np.loadtxt('../vega.dat', comments='#', unpack=True) #wavelength is in angstroms
+
 wavelength /= 10000 #and now it is in microns :]
-flux *= 10000 #claude told me to do this but idk
+#flux *= 10000 #claude told me to do this but idk
 
 # before doing all the next steps and binning, need to account for this extra redshift
-z = 1.3 # i think user is supposed to input this
+z = 1.3# i think user is supposed to input this
 targ_mag = 21 # i think user is also supposed to input this
 wavelength *= (1+z)
 #flux /= (1+z)
@@ -85,27 +87,23 @@ for i in range(len(l_full)):
 #so now i have flux, throuput, sky, atm all according to the relevant dispersions.
 #the next thing is to do the integral to get mAB and then use the user inputted mAB to get photon counts per pixel per second
 
-num = []
-den = []
-
+mAB = []
+#hooray this works
 for i in range(len(l_full)):
-    I1 = simpson(1e23*flux_full[i]*((l_full[i]**2)/(const.c*1e6))*thpt[i], (l_full[i]))
-    I2 = simpson(thpt[i], (l_full[i]))
+    l_full[i] *= 1e4
+    i1 = -2.5*np.log10(simpson(flux_full[i] * thpt[i] * l_full[i],  l_full[i]) / simpson(thpt[i]/l_full[i], l_full[i]))-2.41
+    mAB.append(i1)
 
-    num.append(I1)
-    den.append(I2)
+#frac = [x/y for x, y in zip(num, den)]
 
-frac = [x/y for x, y in zip(num, den)]
-
-mAB = [-2.5*np.log10(f/3631) for f in frac] #Jy
+#mAB = [-2.5*np.log10(i) for i in integral] #Jy
 
 print(mAB)
 
-# so according to claude, target magnitude is for the H band
-# so i will hard code the following for the H band
+scales = [10**(-0.4*(targ_mag-m)) for m in mAB]
 
-scale = 10**(-0.4*(targ_mag-mAB[2]))
-flux_final = [f * 1e23 * ((l**2)/(const.c*1e6)) * scale for f,l in zip(flux_full, l_full)]
+#flux_final = [f * 1e-23 * ((l**2)/(const.c*1e6)) * scale for f,l in zip(flux_full, l_full)]
+flux_final = [f*s for f,s in zip(flux_full, scales)]
 
 #OK so now i have the corrected flux and can turn it into photon counts
 
@@ -114,7 +112,7 @@ slit_width = 0.84
 angular_extent = 0.84 #idk what to use for this
 
 dispersions = [d*10000 for d in dispersions] #back in angstroms
-print(dispersions)
+#print(dispersions)
 
 sky_photons_per_pixel = []
 for i in range(len(dispersions)):
@@ -128,9 +126,14 @@ flux_photons_per_pixel = []
 for i in range(len(dispersions)):
     flux_loop = flux_final[i]
     #flux_loop = [3631*f*(const.c*1e6)/(l**2) for f, l in zip(flux_final[i], l_full[i])] #now this is f_nu in Jy
-    tot_E = [(f)*(area)*(dispersions[i]*1e-4)*1000 for f in flux_loop]
-    #the f*1e-23 puts the flux in cgs units
-    photon_E = [(l)/(const.h*const.c*1e13) for l in l_full[i]]
+    
+    # erg/cm^2/s/A * cm^2 * A/pixel * s==> erg/pixel
+    tot_E = [(f)*(area)*(dispersions[i])*1000 for f in flux_loop]
+
+    # photon energy in ergs
+    photon_E = [(l)/(const.h*const.c*1e17) for l in l_full[i]]
+
+    #this should be p
     val = [t*p for t, p in zip(tot_E, photon_E)]
     val = [v*a*t for v, a, t in zip(val, atm_binned[i], thpt[i])]
     flux_photons_per_pixel.append(val)
@@ -142,6 +145,7 @@ f_cont = []
 s_cont = []
 thpt_cont = []
 atm_cont = []
+l_full = [l/10000 for l in l_full]
 for i in range(len(dispersions)):
     l_cont.extend(l_full[i])
     f_cont.extend(flux_photons_per_pixel[i])
@@ -202,7 +206,7 @@ for i in range(len(dispersions)):
 snr = []
 snr_cont = []
 for i in range(len(dispersions)):
-    val = [f*exp_time/n for f, n in zip(flux_photons_per_pixel[i], exp_time/eta_tot[i])]
+    val = [f*exp_time/n for f, n in zip(flux_photons_per_pixel[i], eta_tot[i])]
     snr.append(val)
 
     snr_cont.extend(snr[i])

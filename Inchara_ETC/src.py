@@ -43,30 +43,29 @@ def emission_line_signal(l, flux, line_width, line_centre, z):
 
     return wavelegnth, signal
 
-def emission_spectrum_file_signal(file, z, targ_mAB): #need FULL filepath
+def parse_emission_spectrum_file_signal(file, z): #need FULL filepath
     wavelength, flux = np.loadtxt(file, comments='#', unpack=True) #wavelength is in angstroms
 
     wavelength *= (1+z)/10000 # in micron and also redshifted
 
     l_full, flux_full, thpt, sky, atm_binned = bin_signal_thp_atm_sky_data(wavelength, flux)
 
-    num, den = [], []
+    return l_full, flux_full, thpt, sky, atm_binned
 
+def calculate_AB_magnitude(l_full, flux_full, thpt): #wavelength should be in angstroms
+    mAB = []
+    #hooray this works
     for i in range(len(l_full)):
-        I1 = simpson(flux_full[i]*l_full[i]*thpt[i], l_full[i])
-        I2 = simpson(thpt[i]/l_full[i], l_full[i])
+        l_full[i] *= 1e4
+        i1 = -2.5*np.log10(simpson(flux_full[i] * thpt[i] * l_full[i],  l_full[i]) / simpson(thpt[i]/l_full[i], l_full[i]))-2.41
+        mAB.append(i1)
+    return mAB
 
-        num.append(I1)
-        den.append(I2)
-    frac = [x/y/(const.c*1e6) for x, y in zip(num, den)]
-    mAB = -2.5*np.log10(frac) - 48.60
+def rescale_spectrum(mAB, flux_full, targ_mAB):
+    scales = [10**(-0.4*(targ_mAB-m)) for m in mAB]
+    flux_final = [f*s for f,s in zip(flux_full, scales)]
 
-    scale = 10**(-0.4*(targ_mAB-mAB[2]))
-    flux_final = [f * scale for f in flux_full]
-
-
-    
-    return l_full, flux_final, thpt, sky, atm_binned
+    return flux_final
 
 def bin_signal_thp_atm_sky_data(l, signal):
     '''
@@ -140,14 +139,19 @@ def apply_thpt_to_sky(l, sky, thpt):
         sky[i] *= (thpt[i])
     return sky
 
-def calculate_signal_to_photon_counts(l, signal, area):
+def calculate_signal_to_photon_counts(l, signal, area, type = 'micron'):
     '''
     returns signal in terms of photons/pixel/second
     wavelength is in micron!
     '''
+    if type=='angstrom':
+        scale = 1e17
+    else:
+        scale = 1e13
+
     signal_per_pixel = []
     for i in range(len(l)):
-        signal_per_pixel.append(signal[i]*area*(l[i]/(const.h * 1e7 * const.c*1e6))*dispersions[i]*1e-4)
+        signal_per_pixel.append(signal[i]*area*(l[i]/(const.h * const.c* scale))*dispersions[i]*1e-4)
     return signal_per_pixel
 
 def calculate_sky_to_photon_counts(sky, area, slit_width=0.84, angular_extent=0.84):
