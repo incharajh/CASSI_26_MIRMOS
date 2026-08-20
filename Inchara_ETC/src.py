@@ -7,23 +7,28 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 #hardcoded, not good, figure out a lookup table or something for this.
-thpt_files = ["/Users/incharajagadeesh/CASSI_26/MIRMOS/throughput/MIRMOS-thpt-y-codr.dat",
+THPT_FILES = ["/Users/incharajagadeesh/CASSI_26/MIRMOS/throughput/MIRMOS-thpt-y-codr.dat",
               "/Users/incharajagadeesh/CASSI_26/MIRMOS/throughput/MIRMOS-thpt-j-codr.dat",
               "/Users/incharajagadeesh/CASSI_26/MIRMOS/throughput/MIRMOS-thpt-h-codr.dat",
               "/Users/incharajagadeesh/CASSI_26/MIRMOS/throughput/MIRMOS-thpt-k-codr.dat"]
 
-sky_files = ["/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/xtcalc_mirmos_sky_Y.dat",
+SKY_FILES = ["/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/xtcalc_mirmos_sky_Y.dat",
              "/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/xtcalc_mirmos_sky_J.dat",
              "/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/xtcalc_mirmos_sky_H.dat",
              "/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/xtcalc_mirmos_sky_K.dat"]
 
-atm_file = "/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/atm_trans_mirmos.dat"
+ATM_FILE = "/Users/incharajagadeesh/CASSI_26/MIRMOS/atmosphere/atm_trans_mirmos.dat"
 
 dispersions = [1.478, 1.548, 2.153, 3.003] #angstroms per pixel, yjhk
 
-band_edges = [(1.0, 1.1), (1.1, 1.4), (1.4, 1.9), (1.9, 2.4)] #yjhk, check IDL!!
+BAND_EDGES = [(1.0, 1.1), (1.1, 1.4), (1.4, 1.9), (1.9, 2.4)] #yjhk, check IDL!!
 
-def emission_line_signal(l, flux, line_width, line_centre, z):
+IFU_THPT = 0.8
+IFU_SLIT_WIDTH = 0.84
+IFU_SPAXEL_HEIGHT = 0.4
+SLIT_WIDTH = 0.84
+
+def emission_line_signal(l, flux, line_width, line_centre, z, instrument = 'MOS'): # good for MOS and IFU methinks
     '''
     l is wavelength (lambda) in micron
 	flux should be given in 1e-18 erg/s/cm^2
@@ -33,30 +38,53 @@ def emission_line_signal(l, flux, line_width, line_centre, z):
     
     returns gaussian emission line with given params and redshifted wavelengths
 	'''
+
+    if (instrument != 'MOS') and (instrument != 'IFU'):
+        print("Incorrect instrument entered. Please change your prompt and rerun this function.")
+        return np.nan
+
+    if instrument == 'IFU':
+        flux *= IFU_SLIT_WIDTH*IFU_SPAXEL_HEIGHT
+    
     wavelegnth = np.asarray(l, dtype=np.float64)
-    wavelegnth *= (1+z)
+    wvl = wavelegnth * (1+z)
     fwhm = line_centre * line_width/(const.c*1e-3)
     sigma = fwhm/(2*np.sqrt(2*np.log(2)))
     amp = flux/(sigma * np.sqrt(2*np.pi))
     exponent = np.exp(-0.5*((wavelegnth-line_centre)/sigma)**2)
     signal = amp*exponent
 
-    return wavelegnth, signal
+    if (instrument == 'IFU'):
+        signal *= IFU_THPT
 
-def parse_emission_spectrum_file_signal(file, z): #need FULL filepath
-    wavelength, flux = np.loadtxt(file, comments='#', unpack=True) #wavelength is in angstroms
+    return wvl, signal
 
-    wavelength *= (1+z)/10000 # in micron and also redshifted
+def parse_emission_spectrum_file_signal(file, z, wavelength_unit = 'micron', instrument = 'MOS'): #need FULL filepath
+    if (instrument != 'MOS') or (instrument != 'IFU'):
+        print("Incorrect instrument entered. Please change your prompt and rerun this function.")
+        return np.nan
+    if (wavelength_unit != 'angstrom') or (wavelength_unit != 'micron'):
+        print("Invalid wavelength units. Assuming micron.")
 
-    l_full, flux_full, thpt, sky, atm_binned = bin_signal_thp_atm_sky_data(wavelength, flux)
+    wavelength, flux = np.loadtxt(file, comments='#', unpack=True)
+    wavelength *= (1+z) # redshifted
+
+    if instrument == 'IFU':
+        flux *= IFU_SLIT_WIDTH * IFU_SPAXEL_HEIGHT * IFU_THPT
+
+    l_full, flux_full, thpt, sky, atm_binned = bin_signal_thp_atm_sky_data(wavelength, flux, wavelength_unit=wavelength_unit)
 
     return l_full, flux_full, thpt, sky, atm_binned
 
-def calculate_AB_magnitude(l_full, flux_full, thpt): #wavelength should be in angstroms
+def calculate_AB_magnitude(l_full, flux_full, thpt, wavelength_unit = 'micron'): #wavelength should be in angstroms
+    if (wavelength_unit != 'angstrom') or (wavelength_unit != 'micron'):
+        print("Invalid wavelength units. Assuming micron.")
+    if(wavelength_unit != 'angstrom'):
+        l_full = [l * 1e4 for l in l_full]
+
     mAB = []
     #hooray this works
     for i in range(len(l_full)):
-        l_full[i] *= 1e4
         i1 = -2.5*np.log10(simpson(flux_full[i] * thpt[i] * l_full[i],  l_full[i]) / simpson(thpt[i]/l_full[i], l_full[i]))-2.41
         mAB.append(i1)
     return mAB
@@ -67,7 +95,7 @@ def rescale_spectrum(mAB, flux_full, targ_mAB):
 
     return flux_final
 
-def bin_signal_thp_atm_sky_data(l, signal):
+def bin_signal_thp_atm_sky_data(l, signal, wavelength_unit = 'micron'):
     '''
     l is wavelength (lambda) in micron
     signal is in ergs/s/cm^2 (check with gwen/drew/william)
@@ -80,7 +108,13 @@ def bin_signal_thp_atm_sky_data(l, signal):
     thpt = []
     sky = []
 
-    for (lo, hi), disp in zip(band_edges, dispersions):
+    if (wavelength_unit != 'angstrom') and (wavelength_unit != 'micron'):
+        print("Invalid wavelength units. Assuming micron.")
+
+    if(wavelength_unit == 'angstrom'):
+        l *= 1e-4
+
+    for (lo, hi), disp in zip(BAND_EDGES, dispersions):
         # does the (redshifted) spectrum actually cover this band?
         if l.min() <= hi and l.max() >= lo:
             lo_eff = max(lo, l.min())
@@ -90,9 +124,9 @@ def bin_signal_thp_atm_sky_data(l, signal):
             l_full.append(np.array([]))
         signal_full.append(interp1d(l, signal, kind="linear")(l_full[-1]))
 
-    for i in range(len(sky_files)):
-        wvl_thp, thp_dat = np.loadtxt(thpt_files[i])[:,0], np.loadtxt(thpt_files[i])[:,1]
-        wvl_sky, sky_dat = np.loadtxt(sky_files[i])[:,0], np.loadtxt(sky_files[i])[:,1]
+    for i in range(len(SKY_FILES)):
+        wvl_thp, thp_dat = np.loadtxt(THPT_FILES[i])[:,0], np.loadtxt(THPT_FILES[i])[:,1]
+        wvl_sky, sky_dat = np.loadtxt(SKY_FILES[i])[:,0], np.loadtxt(SKY_FILES[i])[:,1]
 
         # intersect: only keep grid points covered by BOTH throughput and sky files
         lo = max(l_full[i].min(), wvl_thp.min(), wvl_sky.min()) if len(l_full[i]) else None
@@ -112,39 +146,46 @@ def bin_signal_thp_atm_sky_data(l, signal):
         thpt.append(interp1d(wvl_thp, thp_dat, kind='linear')(l_full[i]))
         sky.append(interp1d(wvl_sky, sky_dat, kind='linear')(l_full[i]))
 
-        wavelength_atm, atm = [np.loadtxt(atm_file)[:,0], np.loadtxt(atm_file)[:,1]]
+        wavelength_atm, atm = [np.loadtxt(ATM_FILE)[:,0], np.loadtxt(ATM_FILE)[:,1]]
     atm_binned = []
     for i in range(len(l_full)):
         atm_binned.append(interp1d(wavelength_atm, atm, kind="linear")(l_full[i]))
 
+    if(wavelength_unit == 'angstrom'):
+        l *= 1e4 #return this back to what it used to be
+        l_full = [i*1e4 for i in l_full] #put this back into angstroms for consistency
+
     return l_full, signal_full, thpt, sky, atm_binned
 
-def apply_thpt_atm_to_signal(l, signal, thpt, atm): #emission only
+def apply_thpt_atm_to_signal(signal, thpt, atm): #emission only
     '''
     input results from "bin_signal_thp_atm_sky_data(l, signal)"
 
     outputs the signal as seen by detectors
     '''
-    for i in range(len(l)):
+    for i in range(len(signal)):
         signal[i] *= (thpt[i] * atm[i])
     return signal
 
-def apply_thpt_to_sky(l, sky, thpt):
+def apply_thpt_to_sky(sky, thpt):
     '''
     input results from "bin_signal_thp_atm_sky_data(l, signal)"
 
     outputs the sky as seen by detectors
     '''
-    for i in range(len(l)):
+    for i in range(len(sky)):
         sky[i] *= (thpt[i])
     return sky
 
-def calculate_signal_to_photon_counts(l, signal, area, type = 'micron'):
+def calculate_signal_to_photon_counts(l, signal, area, wavelength_unit = 'micron'):
     '''
     returns signal in terms of photons/pixel/second
     wavelength is in micron!
     '''
-    if type=='angstrom':
+    if (wavelength_unit != 'angstrom') or (wavelength_unit != 'micron'):
+        print("Invalid wavelength units. Assuming micron.")
+    
+    if wavelength_unit=='angstrom':
         scale = 1e17
     else:
         scale = 1e13
@@ -154,10 +195,10 @@ def calculate_signal_to_photon_counts(l, signal, area, type = 'micron'):
         signal_per_pixel.append(signal[i]*area*(l[i]/(const.h * const.c* scale))*dispersions[i]*1e-4)
     return signal_per_pixel
 
-def calculate_sky_to_photon_counts(sky, area, slit_width=0.84, angular_extent=0.84):
+def calculate_sky_to_photon_counts(sky, area, angular_extent=0.84):
     sky_per_pixel = []
     for i in range(len(sky)):
-        sky_per_pixel.append(sky[i]*area*angular_extent*slit_width*dispersions[i])
+        sky_per_pixel.append(sky[i]*area*angular_extent*SLIT_WIDTH*dispersions[i])
     return sky_per_pixel
 
 def calculate_signal_to_noise(signal, sky, exp_time = 1000, angular_extent=0.84, rn = 21, n_reads = 16):
@@ -196,3 +237,23 @@ def calculate_exposure_time(targ_snr, signal, sky, angular_extent=0.84, rn = 16,
     exp_time = (-b + np.sqrt(b**2 - (4*a*c)))/(2*a)
 
     return exp_time
+
+def calculate_snr(signal_per_pix, sky_per_pix, angular_extent = 0.8, num_exp=1, exposure_time = 240, rn = 16, n_reads = 16): # per pixel
+    n_spatial = angular_extent/0.38
+    eta_read = (rn/np.sqrt(n_reads)) * np.sqrt(n_spatial) # read noise
+    eta_dark = np.sqrt(n_spatial * 0.005 * exposure_time) # dark current
+    eta_tot = np.sqrt((signal_per_pix*exposure_time )+ (sky_per_pix*exposure_time) + (eta_dark)**2 + (eta_read)**2)
+
+    snr = (signal_per_pix*exposure_time/eta_tot) * np.sqrt(num_exp)
+
+    return snr
+
+def calculate_max_snr(signal_per_pix, sky_per_pix, angular_extent = 0.8, num_exp=1, exposure_time = 240, rn = 16, n_reads = 16):
+    n_spatial = angular_extent/0.38
+    eta_read = (rn/np.sqrt(n_reads)) * np.sqrt(n_spatial) # read noise
+    eta_dark = np.sqrt(n_spatial * 0.005 * exposure_time) # dark current
+    eta_tot = np.sqrt((signal_per_pix*exposure_time )+ (sky_per_pix*exposure_time) + (eta_dark)**2 + (eta_read)**2)
+
+    snr = (signal_per_pix*exposure_time/eta_tot) * np.sqrt(num_exp)
+
+    return np.max(snr)

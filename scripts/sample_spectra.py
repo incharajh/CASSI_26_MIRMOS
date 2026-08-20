@@ -160,6 +160,9 @@ for i in range(len(dispersions)):
 # plt.legend()
 # plt.show()
 
+
+wavelength_ref, photon_count_ref = np.loadtxt('/Users/incharajagadeesh/CASSI_26/MIRMOS/K-21AB-z1.3-1000s-ssp1.4Gyr_z02.spec_signal_XTcalc.txt', comments='#', unpack=True) #wavelength is in angstroms
+
 fig, ax = plt.subplots()
 
 ax2 = ax.twinx()
@@ -177,12 +180,42 @@ ax2.set_ylabel('Transmission')
 
 lines1, labels1 = ax.get_legend_handles_labels()
 lines2, labels2 = ax2.get_legend_handles_labels()
-ax2.legend(lines1 + lines2, labels1 + labels2)
+ax2.legend(lines1 + lines2, labels1 + labels2, loc = 'lower right')
 
 fig.suptitle("")
 
 plt.tight_layout()
 plt.show()
+
+# plot the noise contributions!
+fig1, ax1 = plt.subplots()
+
+ax12 = ax1.twinx()
+
+ax1.axhline(y=21, color = 'g')
+ax1.plot(l_cont, np.sqrt([f*1000 for f in f_cont]), color = 'b')
+ax1.plot(l_cont, np.sqrt([s*1000 for s in s_cont]), color = 'r')
+ax1.axhline(y = np.sqrt(angular_extent/0.38 * 0.005 * 1000), color = 'purple')
+
+ax12.plot(l_cont, f_cont, color = 'k')
+
+ax1.set_xlabel('Wavelength (micron)', fontsize = 30)
+ax1.set_ylabel('Electrons/pixel', fontsize = 30)
+ax12.set_ylabel('Photons/pixel', fontsize = 30)
+
+ax1.tick_params(axis='both', labelsize=28)
+ax12.tick_params(axis='both', labelsize=28)
+
+ax1.set_title('Quiescent galaxy at z = 1.3 and 1000s exposure time.', fontsize = 32)
+
+
+
+plt.tight_layout()
+plt.show()
+
+
+
+
 
 #SNR time!
 
